@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinity Mandelbrot</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <canvas id="glCanvas"></canvas>
+
+    <div class="ui-overlay">
+        <div class="header">
+            <h1>Mandelbrot <span class="accent">GPU</span></h1>
+            <p>Emulated Double Precision Engine</p>
+        </div>
+
+        <div class="controls-panel">
+            <div class="control-group">
+                <label for="palette">Color Palette</label>
+                <div class="select-wrapper">
+                    <select id="palette">
+                        <option value="0">Midnight Fire</option>
+                        <option value="1">Electric Blue</option>
+                        <option value="2">Radioactive</option>
+                        <option value="3">Cotton Candy</option>
+                        <option value="4">Matrix</option>
+                        <option value="5">Rainbow Road</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Zoom Level</label>
+                <div class="stat-display" id="zoom-display">1.00x</div>
+            </div>
+
+            <div class="control-group">
+                <label>Position</label>
+                <div class="stat-display small" id="pos-display">0.00, 0.00</div>
+            </div>
+
+            <div class="actions">
+                <button id="reset-btn" class="btn secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                    </svg>
+                    Reset View
+                </button>
+            </div>
+
+            <div class="instructions">
+                <p>🖱️ <strong>Scroll</strong> to zoom at cursor</p>
+                <p>👆 <strong>Drag</strong> to pan view</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="mandelbrot.js"></script>
+</body>
+
+</html>
