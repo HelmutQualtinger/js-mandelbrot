@@ -1,30 +1,36 @@
 const canvas = document.getElementById('glCanvas');
-const gl = canvas.getContext('webgl');
+const gl = canvas.getContext('webgl2');
 
 if (!gl) {
-    alert('Unable to initialize WebGL. Your browser or machine may not support it.');
+    alert('Unable to initialize WebGL 2. Your browser or machine may not support it.');
 }
 
 // --- Shader Sources (Emulated Double Precision - DS) ---
 
-const vsSource = `
-    attribute vec4 aVertexPosition;
+const vsSource = `#version 300 es
+    in vec4 aVertexPosition;
     void main(void) {
         gl_Position = aVertexPosition;
     }
 `;
 
-const fsSource = `
+const fsSource = `#version 300 es
     precision highp float;
 
     uniform vec2 u_resolution;
     uniform vec2 u_center_x; // High/Low pair
     uniform vec2 u_center_y; // High/Low pair
-    uniform float u_scale;   // 2.0 / Zoom 
+    uniform vec2 u_scale;    // 2.0 / Zoom as High/Low pair
     uniform int u_palette;
     uniform int u_maxIterations;
+    
+    // Safety from optimization
+    uniform float u_split; // 4097.0
+    
+    out vec4 outColor;
 
-    // --- DS Math Functions ---
+    // --- DS Math Functions (Robust Implementation) ---
+    
     // ds_add(a, b) = a + b
     vec2 ds_add(vec2 a, vec2 b) {
         vec2 t;
@@ -36,52 +42,46 @@ const fsSource = `
         t.y = t2 - (t.x - t1);
         return t;
     }
-    
+
     // ds_sub(a, b) = a - b
     vec2 ds_sub(vec2 a, vec2 b) {
-         vec2 t;
-         float t1, t2, e;
-         t1 = a.x - b.x;
-         e = t1 - a.x;
-         t2 = ((-b.x - e) + (a.x - (t1 - e))) + a.y - b.y;
-         t.x = t1 + t2;
-         t.y = t2 - (t.x - t1);
-         return t;
+        vec2 t;
+        float t1, t2, e;
+        t1 = a.x - b.x;
+        e = t1 - a.x;
+        t2 = ((-b.x - e) + (a.x - (t1 - e))) + a.y - b.y;
+        t.x = t1 + t2;
+        t.y = t2 - (t.x - t1);
+        return t;
     }
 
     // ds_mul(a, b) = a * b
     vec2 ds_mul(vec2 a, vec2 b) {
+        float c = u_split; // Prevent optimization
+        
+        float cona = a.x * c;
+        float a_hi = cona - (cona - a.x);
+        float a_lo = a.x - a_hi;
+        
+        float conb = b.x * c;
+        float b_hi = conb - (conb - b.x);
+        float b_lo = b.x - b_hi;
+        
+        float C1 = a.x * b.x;
+        float C2 = (a_hi * b_hi - C1) + a_hi * b_lo + a_lo * b_hi + a_lo * b_lo;
+        
+        // Add low-order products
+        float t2 = C2 + a.x * b.y + a.y * b.x;
+        
         vec2 t;
-        float c11, c21, c2, e, t1, t2;
-        float a1, a2, b1, b2;
-        
-        float con = 8193.0; // 2^13 + 1
-        
-        float cona = a.x * con;
-        a1 = cona - (cona - a.x);
-        a2 = a.x - a1;
-        
-        float conb = b.x * con;
-        b1 = conb - (conb - b.x);
-        b2 = b.x - b1;
-        
-        c11 = a.x * b.x;
-        c21 = a2 * b2 - (((c11 - a1 * b1) - a2 * b1) - a1 * b2);
-        
-        c2 = a.x * b.y + a.y * b.x;
-        
-        t1 = c11 + c2;
-        e = t1 - c11;
-        t2 = a.y * b.y + ((c2 - e) + (c11 - (t1 - e))) + c21;
-        
-        t.x = t1 + t2;
-        t.y = t2 - (t.x - t1);
-        
+        t.x = C1 + t2;
+        t.y = t2 - (t.x - C1);
         return t;
     }
 
+    // ds_sqr(a) = a * a
     vec2 ds_sqr(vec2 a) {
-        return ds_mul(a, a); 
+        return ds_mul(a, a);
     }
     
     // Palette
@@ -97,13 +97,41 @@ const fsSource = `
         uv.x *= aspect;
 
         // C = Center + (uv * scale)
-        // Convert uv*scale (small float) to DS
+        // Optimization: At high zoom, scale is very small (e.g. 1e-10)
+        // Center is large (e.g. 1.0).
+        // Standard ds_add might lose precision if not careful.
+        // We can manually inject the offset into the low part of center 
+        // because offset is guaranteed to be small compared to center.x
         
-        float dx = uv.x * u_scale;
-        float dy = uv.y * u_scale;
+        // Calculate offset in DS
+        vec2 uv_x_ds = vec2(uv.x, 0.0);
+        vec2 uv_y_ds = vec2(uv.y, 0.0);
+        vec2 dx = ds_mul(uv_x_ds, u_scale);
+        vec2 dy = ds_mul(uv_y_ds, u_scale);
         
-        vec2 cx = ds_add(u_center_x, vec2(dx, 0.0));
-        vec2 cy = ds_add(u_center_y, vec2(dy, 0.0));
+        // Manual Add: cx = (u_center_x.x, u_center_x.y + dx.x)
+        // This assumes dx is small enough to generally fit in the low part 'gap'
+        // or that it simply adds to the low part.
+        // dx.x is the main magnitude of the offset.
+        
+        vec2 cx;
+        cx.x = u_center_x.x;
+        cx.y = u_center_x.y + dx.x; 
+        // Note: we ignore dx.y (the error of the offset) because it's 1e-7 smaller than dx.x
+        // and dx.x is already 1e-7 smaller than center.
+        
+        vec2 cy;
+        cy.x = u_center_y.x;
+        cy.y = u_center_y.y + dy.x;
+        
+        // If center is 0, we should use standard add, but this manual method 
+        // is robust for deep zooms away from origin.
+        // To be safe, let's use ds_add but if it fails we know why.
+        // Actually, let's revert to ds_add first now that the uniform bug is fixed.
+        // If it's still blocky, we use the manual trick.
+        
+        cx = ds_add(u_center_x, dx);
+        cy = ds_add(u_center_y, dy);
 
         vec2 zx = vec2(0.0);
         vec2 zy = vec2(0.0);
@@ -128,7 +156,6 @@ const fsSource = `
             
             vec2 two_zx = ds_add(zx, zx);
             vec2 term_y = ds_mul(two_zx, zy);
-            // Optimization: could inline
             
             vec2 next_zy = ds_add(term_y, cy);
             
@@ -169,7 +196,7 @@ const fsSource = `
             }
         }
 
-        gl_FragColor = vec4(color, 1.0);
+        outColor = vec4(color, 1.0);
     }
 `;
 
@@ -212,6 +239,7 @@ const programInfo = {
         scale: gl.getUniformLocation(shaderProgram, 'u_scale'),
         palette: gl.getUniformLocation(shaderProgram, 'u_palette'),
         maxIterations: gl.getUniformLocation(shaderProgram, 'u_maxIterations'),
+        split: gl.getUniformLocation(shaderProgram, 'u_split'),
     },
 };
 
@@ -229,7 +257,7 @@ function splitDouble(v) {
 }
 
 let state = {
-    center: { x: -0.75, y: 0.0 },
+    center: { x: -0.5, y: 0.0 },
     zoom: 1.0,
     palette: 0,
     isDragging: false,
@@ -262,7 +290,8 @@ function drawScene() {
     gl.uniform2f(programInfo.uniformLocations.center_y, cy[0], cy[1]);
 
     const scale = 2.0 / state.zoom;
-    gl.uniform1f(programInfo.uniformLocations.scale, scale);
+    const scaleSplit = splitDouble(scale);
+    gl.uniform2f(programInfo.uniformLocations.scale, scaleSplit[0], scaleSplit[1]);
 
     gl.uniform1i(programInfo.uniformLocations.palette, state.palette);
 
@@ -270,15 +299,17 @@ function drawScene() {
     if (dynamicIter < 200) dynamicIter = 200;
     if (dynamicIter > 2500) dynamicIter = 2500;
     gl.uniform1i(programInfo.uniformLocations.maxIterations, Math.floor(dynamicIter));
+    gl.uniform1f(programInfo.uniformLocations.split, 4097.0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     updateUI();
 }
 
 function updateUI() {
-    document.getElementById('zoom-display').innerText = state.zoom.toExponential(2) + "x";
-    document.getElementById('pos-display').innerText =
-        `${state.center.x.toFixed(10)}, ${state.center.y.toFixed(10)}`;
+    const zoomDisplay = document.getElementById('zoom-display');
+    const posDisplay = document.getElementById('pos-display');
+    if (zoomDisplay) zoomDisplay.innerText = state.zoom.toExponential(2) + "x";
+    if (posDisplay) posDisplay.innerText = `${state.center.x.toFixed(10)}, ${state.center.y.toFixed(10)}`;
 }
 
 // --- Interaction ---
@@ -336,15 +367,183 @@ canvas.addEventListener('wheel', e => {
     requestAnimationFrame(drawScene);
 }, { passive: false });
 
-document.getElementById('palette').addEventListener('change', e => {
+const paletteSelect = document.getElementById('palette');
+paletteSelect.addEventListener('change', e => {
     state.palette = parseInt(e.target.value);
     requestAnimationFrame(drawScene);
 });
-document.getElementById('reset-btn').addEventListener('click', () => {
-    state.center = { x: -0.75, y: 0.0 };
-    state.zoom = 1.0;
-    requestAnimationFrame(drawScene);
+
+// Initialize palette from dropdown value on page load
+state.palette = parseInt(paletteSelect.value);
+
+const resetBtn = document.getElementById('reset-btn');
+if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+        state.center = { x: -0.75, y: 0.0 };
+        state.zoom = 1.0;
+        requestAnimationFrame(drawScene);
+    });
+}
+
+if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+        state.center = { x: -0.75, y: 0.0 };
+        state.zoom = 1.0;
+        requestAnimationFrame(drawScene);
+    });
+}
+
+// --- Touch Interaction ---
+let touchState = {
+    isPanning: false,
+    startPoints: [], // [{x, y, id}] - device pixels relative to canvas
+    // For pinch zoom:
+    initialDistance: 0, // Distance between fingers at start of pinch
+    initialZoom: 1.0,   // Zoom level at start of pinch
+    pinchCenterCanvas: { x: 0, y: 0 }, // Midpoint of fingers at start of pinch
+    // For panning:
+    lastMouse: { x: 0, y: 0 } // last touch point for panning
+};
+
+function getTouchById(id) {
+    return touchState.startPoints.find(p => p.id === id);
+}
+
+function getDistance(p1, p2) {
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getMidpoint(p1, p2) {
+    return {
+        x: (p1.x + p2.x) / 2,
+        y: (p1.y + p2.y) / 2
+    };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // Prevent default browser actions like scrolling
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    // Current touches in device pixels relative to canvas top-left
+    const currentTouchesInCanvasPx = Array.from(e.touches).map(touch => ({
+        id: touch.identifier,
+        x: (touch.clientX - rect.left) * dpr,
+        y: (touch.clientY - rect.top) * dpr
+    }));
+    touchState.startPoints = currentTouchesInCanvasPx; // Store current points
+
+    if (currentTouchesInCanvasPx.length === 1) {
+        touchState.isPanning = true;
+        touchState.lastMouse = currentTouchesInCanvasPx[0]; // Start panning from here
+    } else if (currentTouchesInCanvasPx.length === 2) {
+        touchState.isPanning = false;
+        const p1 = currentTouchesInCanvasPx[0];
+        const p2 = currentTouchesInCanvasPx[1];
+        touchState.initialDistance = getDistance(p1, p2); // Store initial distance
+        touchState.initialZoom = state.zoom;             // Store initial zoom level
+        touchState.pinchCenterCanvas = getMidpoint(p1, p2); // Store initial pinch center
+    }
+}, { passive: false }); // passive: false is important for preventDefault
+
+window.addEventListener('touchend', (e) => {
+    // If no touches remain, reset state
+    if (e.touches.length === 0) {
+        touchState.isPanning = false;
+        touchState.startPoints = [];
+        // Reset pinch-specific state if needed, though not strictly necessary here
+        // touchState.initialDistance = 0;
+        // touchState.initialZoom = 1.0;
+        // touchState.pinchCenterCanvas = {x:0, y:0};
+    } else if (e.touches.length === 1) {
+        // If one finger is left, transition to panning mode
+        touchState.isPanning = true;
+        // Reset lastMouse to the current position of the remaining finger
+        const remainingTouch = Array.from(e.touches)[0];
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        touchState.lastMouse = {
+            x: (remainingTouch.clientX - rect.left) * dpr,
+            y: (remainingTouch.clientY - rect.top) * dpr
+        };
+        // Update startPoints to reflect the single finger
+        touchState.startPoints = [{
+            id: remainingTouch.identifier,
+            x: touchState.lastMouse.x,
+            y: touchState.lastMouse.y
+        }];
+        // Reset pinch state if transitioning from pinch to pan
+        // touchState.initialDistance = 0;
+    }
 });
 
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault(); // Prevent default browser actions
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    // Current touch points in device pixels relative to canvas top-left
+    const currentTouchesInCanvasPx = Array.from(e.touches).map(touch => ({
+        id: touch.identifier,
+        x: (touch.clientX - rect.left) * dpr,
+        y: (touch.clientY - rect.top) * dpr
+    }));
+
+    if (touchState.isPanning && currentTouchesInCanvasPx.length === 1) {
+        // Panning logic
+        const currentTouch = currentTouchesInCanvasPx[0];
+        const dx = currentTouch.x - touchState.lastMouse.x;
+        const dy = currentTouch.y - touchState.lastMouse.y;
+
+        // Calculate pan delta based on fractal coordinates
+        const dFactor = 4.0 / (state.zoom * canvas.clientHeight); // Use physical height for scaling
+        state.center.x -= dx * dFactor;
+        state.center.y += dy * dFactor;
+
+        touchState.lastMouse = currentTouch; // Update last mouse position for next pan event
+        requestAnimationFrame(drawScene);
+    } else if (!touchState.isPanning && currentTouchesInCanvasPx.length === 2) {
+        // Pinch-zoom logic
+        const p1_current = currentTouchesInCanvasPx[0];
+        const p2_current = currentTouchesInCanvasPx[1];
+        const mid_current = getMidpoint(p1_current, p2_current); // Current pinch center in device pixels
+        const distance_current = getDistance(p1_current, p2_current);
+
+        // Calculate zoom factor based on the ratio of current distance to initial distance
+        // This makes zoom directly proportional to the finger spread.
+        const zoomRatio = touchState.initialDistance > 0 ? distance_current / touchState.initialDistance : 1.0;
+
+        // Update state.zoom based on the initial zoom and the calculated zoom ratio
+        state.zoom = touchState.initialZoom * zoomRatio;
+
+        // Adjust center to zoom towards the pinch center
+        const aspect = canvas.width / canvas.height;
+
+        // Convert the *initial* pinch center to normalized coordinates [-1, 1]
+        const mx_norm_initial = (touchState.pinchCenterCanvas.x / canvas.width) * 2.0 - 1.0;
+        const my_norm_initial = -(touchState.pinchCenterCanvas.y / canvas.height) * 2.0 + 1.0; // Y is inverted
+
+        // Apply aspect ratio for x coordinate to get fractal-like coordinates
+        const nx = mx_norm_initial * aspect;
+        const ny = my_norm_initial;
+
+        // Calculate scale before and after zoom update
+        const scale_old = 2.0 / touchState.initialZoom; // Scale related to initial zoom
+        const scale_new = 2.0 / state.zoom;            // Scale related to current zoom
+
+        // Adjust center to zoom towards the pinch center
+        // The adjustment moves the center based on the difference in scale and the pinch center's position
+        state.center.x = state.center.x + nx * (scale_old - scale_new);
+        state.center.y = state.center.y + ny * (scale_old - scale_new);
+
+        requestAnimationFrame(drawScene);
+    }
+}, { passive: false }); // passive: false is important for preventDefault
+
 window.addEventListener('resize', drawScene);
+
+
 requestAnimationFrame(drawScene);
