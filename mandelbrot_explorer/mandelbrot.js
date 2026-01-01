@@ -2,7 +2,11 @@ const canvas = document.getElementById('glCanvas');
 const gl = canvas.getContext('webgl2');
 
 if (!gl) {
-    alert('Unable to initialize WebGL 2. Your browser or machine may not support it.');
+    console.error('Unable to initialize WebGL 2.');
+} else {
+    const f = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    console.log('Highp:', f ? [f.rangeMin, f.rangeMax, f.precision] : 'Not Supported');
+    console.log('SplitTest:', splitDouble(1.23e-7));
 }
 
 // --- Shader Sources (Emulated Double Precision - DS) ---
@@ -104,34 +108,28 @@ const fsSource = `#version 300 es
         // because offset is guaranteed to be small compared to center.x
         
         // Calculate offset in DS
-        vec2 uv_x_ds = vec2(uv.x, 0.0);
-        vec2 uv_y_ds = vec2(uv.y, 0.0);
-        vec2 dx = ds_mul(uv_x_ds, u_scale);
-        vec2 dy = ds_mul(uv_y_ds, u_scale);
+        // Simplified offset: bypass ds_mul splitting which might be failing for small scale
+        // Since u_scale.y is likely 0 at high zoom, and uv.y is 0 in uv_x_ds,
+        // we can just multiply the floats.
+        vec2 dx = vec2(uv.x * u_scale.x, 0.0);
+        vec2 dy = vec2(uv.y * u_scale.x, 0.0);
         
         // Manual Add: cx = (u_center_x.x, u_center_x.y + dx.x)
         // This assumes dx is small enough to generally fit in the low part 'gap'
-        // or that it simply adds to the low part.
-        // dx.x is the main magnitude of the offset.
         
         vec2 cx;
         cx.x = u_center_x.x;
         cx.y = u_center_x.y + dx.x; 
-        // Note: we ignore dx.y (the error of the offset) because it's 1e-7 smaller than dx.x
-        // and dx.x is already 1e-7 smaller than center.
         
         vec2 cy;
         cy.x = u_center_y.x;
         cy.y = u_center_y.y + dy.x;
         
-        // If center is 0, we should use standard add, but this manual method 
-        // is robust for deep zooms away from origin.
-        // To be safe, let's use ds_add but if it fails we know why.
-        // Actually, let's revert to ds_add first now that the uniform bug is fixed.
-        // If it's still blocky, we use the manual trick.
+        // We rely on the manual addition for the initial coordinate to prevent
+        // precision loss in ds_add when adding a tiny offset to a large center.
         
-        cx = ds_add(u_center_x, dx);
-        cy = ds_add(u_center_y, dy);
+        // cx = ds_add(u_center_x, dx); // REVERTED: Using manual method
+        // cy = ds_add(u_center_y, dy); // REVERTED: Using manual method
 
         vec2 zx = vec2(0.0);
         vec2 zy = vec2(0.0);
@@ -257,12 +255,13 @@ function splitDouble(v) {
 }
 
 let state = {
-    center: { x: -0.5, y: 0.0 },
-    zoom: 1.0,
-    palette: 0,
+    center: { x: -0.4153118940, y: 0.6019775837 },
+    zoom: 3.42e7,
+    palette: 2,
     isDragging: false,
     lastMouse: { x: 0, y: 0 }
 };
+
 
 function drawScene() {
     // High DPI support
@@ -291,6 +290,7 @@ function drawScene() {
 
     const scale = 2.0 / state.zoom;
     const scaleSplit = splitDouble(scale);
+    // console.log("Scale:", scale, "Split:", scaleSplit);
     gl.uniform2f(programInfo.uniformLocations.scale, scaleSplit[0], scaleSplit[1]);
 
     gl.uniform1i(programInfo.uniformLocations.palette, state.palette);
@@ -373,8 +373,7 @@ paletteSelect.addEventListener('change', e => {
     requestAnimationFrame(drawScene);
 });
 
-// Initialize palette from dropdown value on page load
-state.palette = parseInt(paletteSelect.value);
+
 
 const resetBtn = document.getElementById('reset-btn');
 if (resetBtn) {
