@@ -266,7 +266,9 @@ let state = {
     isDragging: false,
     lastMouse: { x: 0, y: 0 },
     currentMousePos: { x: 0, y: 0 },
-    currentIterations: 0
+    currentIterations: 0,
+    cursorRe: 0,
+    cursorIm: 0
 };
 
 // --- DD Arithmetic for Iteration Calculation ---
@@ -358,7 +360,13 @@ function getIterationsUnderCursor(pixelX, pixelY) {
     if (dynamicIter < 200) dynamicIter = 200;
     if (dynamicIter > 20000) dynamicIter = 20000;
 
-    return calculateIterations(cx, cy, Math.floor(dynamicIter));
+    const iterations = calculateIterations(cx, cy, Math.floor(dynamicIter));
+
+    return {
+        iterations: iterations,
+        re: cx,
+        im: cy
+    };
 }
 
 function drawScene() {
@@ -412,7 +420,11 @@ function updateUI() {
 
     if (zoomDisplay) zoomDisplay.innerText = state.zoom.toExponential(2) + "x";
     if (posDisplay) posDisplay.innerText = `${state.center.x.toFixed(10)}, ${state.center.y.toFixed(10)}`;
-    if (iterDisplay) iterDisplay.innerText = `Iterations: ${state.currentIterations}`;
+    if (iterDisplay) {
+        const reStr = state.cursorRe.toFixed(10);
+        const imStr = state.cursorIm.toFixed(10);
+        iterDisplay.innerText = `Iter: ${state.currentIterations} | Re: ${reStr} | Im: ${imStr}`;
+    }
 
     // Precision calculation
     // DD with 32-bit floats gives ~48 bits of mantissa precision
@@ -453,7 +465,10 @@ window.addEventListener('mousemove', e => {
 
     // Update iterations display for cursor position
     if (canvasX >= 0 && canvasX < canvas.width && canvasY >= 0 && canvasY < canvas.height) {
-        state.currentIterations = getIterationsUnderCursor(canvasX, canvasY);
+        const cursorData = getIterationsUnderCursor(canvasX, canvasY);
+        state.currentIterations = cursorData.iterations;
+        state.cursorRe = cursorData.re;
+        state.cursorIm = cursorData.im;
         updateUI();
     }
 
