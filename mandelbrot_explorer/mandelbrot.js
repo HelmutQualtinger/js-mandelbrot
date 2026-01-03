@@ -631,6 +631,73 @@ canvas.addEventListener('touchmove', (e) => {
 
 window.addEventListener('resize', drawScene);
 
+// --- Keyboard Shortcuts ---
+window.addEventListener('keydown', e => {
+    const zoomFactor = 1.1;
+
+    switch(e.key.toLowerCase()) {
+        case '+':
+        case '=':
+            // Zoom in
+            state.zoom *= zoomFactor;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case '-':
+        case '_':
+            // Zoom out
+            state.zoom /= zoomFactor;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case 'r':
+            // Reset to default zoom and position
+            state.center = { x: -0.75, y: 0.0 };
+            state.zoom = 1.0;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case 'arrowup':
+            // Pan up
+            state.center.y += 0.1 / state.zoom;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case 'arrowdown':
+            // Pan down
+            state.center.y -= 0.1 / state.zoom;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case 'arrowleft':
+            // Pan left
+            state.center.x -= 0.1 / state.zoom;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case 'arrowright':
+            // Pan right
+            state.center.x += 0.1 / state.zoom;
+            requestAnimationFrame(drawScene);
+            break;
+
+        case '?':
+            // Show help
+            showNotification('Zoom: +/- | Pan: Arrow Keys | Reset: R | Save: S | Help: ?');
+            e.preventDefault();
+            break;
+
+        case 's':
+            // Save image
+            const saveBtn = document.getElementById('save-btn');
+            if (saveBtn) {
+                saveBtn.click();
+                e.preventDefault();
+            }
+            break;
+    }
+});
+
 // --- Save & Share Functionality ---
 
 function showNotification(message) {
