@@ -299,7 +299,9 @@ function drawScene() {
     gl.uniform1i(programInfo.uniformLocations.palette, state.palette);
 
     let dynamicIter = 10000 + Math.log10(state.zoom) * 150;
-    if (dynamicIter < 20000) dynamicIter = 200;
+    if (dynamicIter < 20000
+
+    ) dynamicIter = 200;
     if (dynamicIter > 20000) dynamicIter = 20000;
     gl.uniform1i(programInfo.uniformLocations.maxIterations, Math.floor(dynamicIter));
     gl.uniform1f(programInfo.uniformLocations.split, SPLIT_SHADER);
