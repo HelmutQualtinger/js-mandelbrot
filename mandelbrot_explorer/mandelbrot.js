@@ -594,6 +594,108 @@ if (copyBtn) {
     });
 }
 
+// Save button - renders at 4x resolution and saves as JPG
+const saveBtn = document.getElementById('save-btn');
+if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+        showNotification('Rendering high-resolution image...');
+        saveBtn.disabled = true;
+
+        try {
+            // Create a larger canvas for 4x resolution
+            const saveCanvas = document.createElement('canvas');
+            const saveDpr = window.devicePixelRatio || 1;
+            const outputWidth = Math.floor(canvas.clientWidth * saveDpr * 4);
+            const outputHeight = Math.floor(canvas.clientHeight * saveDpr * 4);
+
+            saveCanvas.width = outputWidth;
+            saveCanvas.height = outputHeight;
+
+            const saveGl = saveCanvas.getContext('webgl2');
+
+            if (!saveGl) {
+                showNotification('WebGL not available for saving');
+                saveBtn.disabled = false;
+                return;
+            }
+
+            // Copy shader program and uniforms from main context
+            const saveProgram = initShaderProgram(saveGl, vsSource, fsSource);
+
+            const saveProgramInfo = {
+                program: saveProgram,
+                attribLocations: {
+                    vertexPosition: saveGl.getAttribLocation(saveProgram, 'aVertexPosition'),
+                },
+                uniformLocations: {
+                    resolution: saveGl.getUniformLocation(saveProgram, 'u_resolution'),
+                    center_x: saveGl.getUniformLocation(saveProgram, 'u_center_x'),
+                    center_y: saveGl.getUniformLocation(saveProgram, 'u_center_y'),
+                    scale: saveGl.getUniformLocation(saveProgram, 'u_scale'),
+                    palette: saveGl.getUniformLocation(saveProgram, 'u_palette'),
+                    maxIterations: saveGl.getUniformLocation(saveProgram, 'u_maxIterations'),
+                    split: saveGl.getUniformLocation(saveProgram, 'u_split'),
+                },
+            };
+
+            const savePositionBuffer = saveGl.createBuffer();
+            saveGl.bindBuffer(saveGl.ARRAY_BUFFER, savePositionBuffer);
+            saveGl.bufferData(saveGl.ARRAY_BUFFER, new Float32Array([-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0]), saveGl.STATIC_DRAW);
+
+            // Render at high resolution
+            saveGl.viewport(0, 0, outputWidth, outputHeight);
+            saveGl.useProgram(saveProgramInfo.program);
+
+            saveGl.bindBuffer(saveGl.ARRAY_BUFFER, savePositionBuffer);
+            saveGl.vertexAttribPointer(saveProgramInfo.attribLocations.vertexPosition, 2, saveGl.FLOAT, false, 0, 0);
+            saveGl.enableVertexAttribArray(saveProgramInfo.attribLocations.vertexPosition);
+
+            saveGl.uniform2f(saveProgramInfo.uniformLocations.resolution, outputWidth, outputHeight);
+
+            const cx = splitDouble(state.center.x);
+            const cy = splitDouble(state.center.y);
+            saveGl.uniform2f(saveProgramInfo.uniformLocations.center_x, cx[0], cx[1]);
+            saveGl.uniform2f(saveProgramInfo.uniformLocations.center_y, cy[0], cy[1]);
+
+            const scale = 2.0 / state.zoom;
+            const scaleSplit = splitDouble(scale);
+            saveGl.uniform2f(saveProgramInfo.uniformLocations.scale, scaleSplit[0], scaleSplit[1]);
+
+            saveGl.uniform1i(saveProgramInfo.uniformLocations.palette, state.palette);
+
+            // Use higher iterations for high-res render
+            let dynamicIter = 100 + Math.log10(state.zoom) * 150;
+            if (dynamicIter < 200) dynamicIter = 200;
+            if (dynamicIter > 20000) dynamicIter = 20000;
+            saveGl.uniform1i(saveProgramInfo.uniformLocations.maxIterations, Math.floor(dynamicIter));
+            saveGl.uniform1f(saveProgramInfo.uniformLocations.split, SPLIT_SHADER);
+
+            saveGl.drawArrays(saveGl.TRIANGLE_STRIP, 0, 4);
+
+            // Convert to JPG and download
+            saveCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                a.href = url;
+                a.download = `mandelbrot_${timestamp}_${Math.floor(state.zoom)}x.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showNotification('Image saved successfully!');
+                saveBtn.disabled = false;
+            }, 'image/jpeg', 0.95);
+
+        } catch (error) {
+            console.error('Error saving image:', error);
+            showNotification('Error saving image');
+            saveBtn.disabled = false;
+        }
+    });
+}
+
 // Load state from URL on page load
 const loadedFromURL = decodeState();
 
