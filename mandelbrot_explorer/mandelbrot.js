@@ -264,8 +264,102 @@ let state = {
     zoom: 1,
     palette: 2,
     isDragging: false,
-    lastMouse: { x: 0, y: 0 }
+    lastMouse: { x: 0, y: 0 },
+    currentMousePos: { x: 0, y: 0 },
+    currentIterations: 0
 };
+
+// --- DD Arithmetic for Iteration Calculation ---
+function ddAdd(a, b) {
+    const s = a[0] + b[0];
+    const v = s - a[0];
+    const e = (a[0] - (s - v)) + (b[0] - v);
+    const c = a[1] + b[1];
+    const w = s + c;
+    const ey = w - s;
+    return [w, e - ey + c + a[1]];
+}
+
+function ddSub(a, b) {
+    const s = a[0] - b[0];
+    const v = s - a[0];
+    const e = (a[0] - (s - v)) - (b[0] + v);
+    const c = a[1] - b[1];
+    const w = s + c;
+    const ey = w - s;
+    return [w, e - ey + c + a[1]];
+}
+
+function ddMul(a, b) {
+    const p = a[0] * b[0];
+    const c = SPLIT_JS * a[0];
+    const a_hi = c - (c - a[0]);
+    const a_lo = a[0] - a_hi;
+    const c2 = SPLIT_JS * b[0];
+    const b_hi = c2 - (c2 - b[0]);
+    const b_lo = b[0] - b_hi;
+    const err = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+    const ps = p + a[1] * b[0] + a[0] * b[1];
+    return [ps, err + a[1] * b[1]];
+}
+
+// Calculate iterations for a given complex number using DD precision
+function calculateIterations(cx, cy, maxIter) {
+    let zx = [0, 0];
+    let zy = [0, 0];
+    let cx_dd = [cx, 0];
+    let cy_dd = [cy, 0];
+
+    for (let i = 0; i < maxIter; i++) {
+        // Calculate zx^2 and zy^2
+        const zx2 = ddMul(zx, zx);
+        const zy2 = ddMul(zy, zy);
+
+        // Check escape: |z|^2 > 4
+        const mag2 = ddAdd(zx2, zy2);
+        if (mag2[0] > 4.0) {
+            return i;
+        }
+
+        // Calculate zy_new = 2 * zx * zy + cy
+        const two_zx = ddAdd(zx, zx);
+        const two_zx_zy = ddMul(two_zx, zy);
+        zy = ddAdd(two_zx_zy, cy_dd);
+
+        // Calculate zx_new = zx^2 - zy^2 + cx
+        const zx2_minus_zy2 = ddSub(zx2, zy2);
+        zx = ddAdd(zx2_minus_zy2, cx_dd);
+    }
+
+    return maxIter;
+}
+
+// Calculate iterations for pixel under cursor
+function getIterationsUnderCursor(pixelX, pixelY) {
+    const aspect = canvas.width / canvas.height;
+
+    // Convert pixel coordinates to normalized device coordinates
+    let uv = {
+        x: pixelX / canvas.width,
+        y: pixelY / canvas.height
+    };
+
+    uv.x = uv.x * 2.0 - 1.0;
+    uv.y = uv.y * 2.0 - 1.0;
+    uv.x *= aspect;
+
+    // Apply zoom and center
+    const scale = 2.0 / state.zoom;
+    const cx = state.center.x + uv.x * scale;
+    const cy = state.center.y - uv.y * scale;
+
+    // Calculate dynamic iterations
+    let dynamicIter = 100 + Math.log10(state.zoom) * 150;
+    if (dynamicIter < 200) dynamicIter = 200;
+    if (dynamicIter > 20000) dynamicIter = 20000;
+
+    return calculateIterations(cx, cy, Math.floor(dynamicIter));
+}
 
 function drawScene() {
     // High DPI support
@@ -314,9 +408,11 @@ function updateUI() {
     const zoomDisplay = document.getElementById('zoom-display');
     const posDisplay = document.getElementById('pos-display');
     const precisionDisplay = document.getElementById('precision-display');
+    const iterDisplay = document.getElementById('iter-display');
 
     if (zoomDisplay) zoomDisplay.innerText = state.zoom.toExponential(2) + "x";
     if (posDisplay) posDisplay.innerText = `${state.center.x.toFixed(10)}, ${state.center.y.toFixed(10)}`;
+    if (iterDisplay) iterDisplay.innerText = `Iterations: ${state.currentIterations}`;
 
     // Precision calculation
     // DD with 32-bit floats gives ~48 bits of mantissa precision
@@ -350,14 +446,25 @@ canvas.addEventListener('mousedown', e => {
 window.addEventListener('mouseup', () => state.isDragging = false);
 
 window.addEventListener('mousemove', e => {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = (e.clientX - rect.left) * dpr;
+    const canvasY = (e.clientY - rect.top) * dpr;
+
+    // Update iterations display for cursor position
+    if (canvasX >= 0 && canvasX < canvas.width && canvasY >= 0 && canvasY < canvas.height) {
+        state.currentIterations = getIterationsUnderCursor(canvasX, canvasY);
+        updateUI();
+    }
+
     if (!state.isDragging) return;
 
     const dx = e.clientX - state.lastMouse.x;
     const dy = e.clientY - state.lastMouse.y;
 
     const dFactor = 4.0 / (state.zoom * canvas.clientHeight);
-    state.center.x -= dx * dFactor * (window.devicePixelRatio || 1);
-    state.center.y += dy * dFactor * (window.devicePixelRatio || 1);
+    state.center.x -= dx * dFactor * dpr;
+    state.center.y += dy * dFactor * dpr;
 
     state.lastMouse = { x: e.clientX, y: e.clientY };
     requestAnimationFrame(drawScene);
