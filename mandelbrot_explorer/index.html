@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Infinity Mandelbrot</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
@@ -16,21 +16,29 @@
 
     <div class="ui-overlay">
         <div class="controls-panel minimal">
-                            <div class="select-wrapper">
-                                <select id="palette">
-                                    <option value="0" selected>Midnight Fire</option>
-                                    <option value="1">Electric Blue</option>
-                                    <option value="2">Radioactive</option>
-                                    <option value="3">Cotton Candy</option>
-                                    <option value="4">Matrix</option>
-                                    <option value="5">Rainbow Road</option>
-                                </select>
-                            </div>
-                            <div id="zoom-display" class="display-info">Zoom: --x</div>
-                            <div id="pos-display" class="display-info">Pos: --,--</div>        </div>
+            <div class="select-wrapper">
+                <select id="palette">
+                    <option value="0" selected>Midnight Fire</option>
+                    <option value="1">Electric Blue</option>
+                    <option value="2">Radioactive</option>
+                    <option value="3">Cotton Candy</option>
+                    <option value="4">Matrix</option>
+                    <option value="5">Sunset</option>
+                    <option value="6">Deep Purple</option>
+                    <option value="7">Golden Hour</option>
+                </select>
+            </div>
+            <div id="zoom-display" class="display-info">Zoom: --x</div>
+            <div id="pos-display" class="display-info">Pos: --,--</div>
+            <div id="precision-display" class="display-info">Precision: --</div>
+            <button id="share-btn" class="control-btn" title="Share this location">Share</button>
+            <button id="copy-btn" class="control-btn" title="Copy coordinates">Copy</button>
+        </div>
     </div>
 
-    <script src="mandelbrot.js?v=2"></script>
+    <div id="notification" class="notification hidden"></div>
+
+    <script src="mandelbrot.js"></script>
 </body>
 
 </html>
