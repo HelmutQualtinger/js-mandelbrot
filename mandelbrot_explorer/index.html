@@ -565,6 +565,33 @@
             document.getElementById('zoomVal').textContent = zoom.toExponential(2);
         }
 
+        // Calculate iterations at a point for display
+        function calculateIterationsForDisplay(cx, cy, maxIterations) {
+            let zx = 0.0;
+            let zy = 0.0;
+            let iter = 0;
+            const escapeRadius = 256.0; // escape_radius_sq from shader
+
+            for (iter = 0; iter < maxIterations; iter++) {
+                const zx2 = zx * zx;
+                const zy2 = zy * zy;
+
+                if (zx2 + zy2 > escapeRadius) {
+                    break;
+                }
+
+                const temp = zx2 - zy2 + cx;
+                zy = 2.0 * zx * zy + cy;
+                zx = temp;
+            }
+
+            // Update display
+            const iterDisplay = document.getElementById('iter-display');
+            if (iterDisplay) {
+                iterDisplay.textContent = `Cursor: Re=${cx.toFixed(6)}, Im=${cy.toFixed(6)}, Iter=${iter}`;
+            }
+        }
+
         async function renderHighRes() {
             if (!device) return;
 
@@ -735,8 +762,25 @@
         });
 
         canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const px = (e.clientX - rect.left) / rect.width;
+            const py = (e.clientY - rect.top) / rect.height;
+
+            // Update cursor info if mouse is over canvas
+            if (px >= 0 && px <= 1 && py >= 0 && py <= 1) {
+                const uvx = (px - 0.5) * 2.0;
+                const uvy = (py - 0.5) * 2.0;
+                const aspect = canvas.width / canvas.height;
+                const scale = 3.0 / zoom;
+
+                const re = centerX + uvx * scale * aspect / 2.0;
+                const im = centerY - uvy * scale;
+
+                // Calculate iterations at cursor position
+                calculateIterationsForDisplay(re, im, maxIter);
+            }
+
             if (isDragging) {
-                const rect = canvas.getBoundingClientRect();
                 const dx = (e.clientX - lastX) / rect.width;
                 const dy = (e.clientY - lastY) / rect.height;
 
