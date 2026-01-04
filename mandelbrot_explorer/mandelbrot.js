@@ -4,7 +4,7 @@ const gl = canvas.getContext('webgl2');
 if (!gl) {
     console.error('Unable to initialize WebGL 2.');
 } else {
-    console.log('Using WebGL with double-double precision Harry was here');
+    console.log('Using WebGL with double-double precision    Harry was here');
     console.log('Precision: ~48 bits (two 32-bit floats)');
     console.log('Max zoom before artifacts: ~2.8e14');
     console.log('Split constant (JS): 2^27+1 = 134217729');
